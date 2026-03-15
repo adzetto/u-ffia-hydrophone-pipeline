@@ -118,6 +118,24 @@ def parse_args() -> argparse.Namespace:
         default=30.0,
         help="Quality factor used by the IIR notch filters.",
     )
+    parser.add_argument(
+        "--adaptation-profile",
+        choices=("none", "hydrophone_v1"),
+        default="none",
+        help="Optional unsupervised domain-adaptation profile applied after preprocessing.",
+    )
+    parser.add_argument(
+        "--adapt-target-rms",
+        type=float,
+        default=0.05,
+        help="Target RMS used by adaptation profiles that normalize capture loudness.",
+    )
+    parser.add_argument(
+        "--adapt-max-gain-db",
+        type=float,
+        default=30.0,
+        help="Maximum absolute gain applied by RMS adaptation, in dB.",
+    )
     return parser.parse_args()
 
 
@@ -300,6 +318,34 @@ def apply_preprocessing(
     return processed.astype(np.float32)
 
 
+def apply_domain_adaptation(
+    waveform: np.ndarray,
+    profile: str,
+    target_rms: float,
+    max_gain_db: float,
+) -> np.ndarray:
+    if profile == "none":
+        return waveform.astype(np.float32, copy=False)
+    if profile != "hydrophone_v1":
+        raise ValueError("Unsupported adaptation profile: {}".format(profile))
+
+    adapted = waveform.astype(np.float64, copy=False)
+    adapted = adapted - float(np.mean(adapted))
+
+    current_rms = float(np.sqrt(np.mean(adapted * adapted))) if adapted.size else 0.0
+    if current_rms > 0 and target_rms > 0:
+        max_gain = float(10 ** (max_gain_db / 20.0))
+        gain = target_rms / current_rms
+        gain = float(np.clip(gain, 1.0 / max_gain, max_gain))
+        adapted = adapted * gain
+
+    peak = float(np.max(np.abs(adapted))) if adapted.size else 0.0
+    if peak > 1.0:
+        adapted = adapted / peak
+
+    return adapted.astype(np.float32)
+
+
 def split_windows(
     audio_path: Path,
     target_sr: int,
@@ -308,6 +354,9 @@ def split_windows(
     highpass_hz: float,
     notch_freqs: Sequence[float],
     notch_q: float,
+    adaptation_profile: str,
+    adapt_target_rms: float,
+    adapt_max_gain_db: float,
 ) -> Tuple[List[np.ndarray], float]:
     waveform, source_sr = librosa.load(str(audio_path), sr=None, mono=True)
     if waveform.size == 0:
@@ -320,6 +369,12 @@ def split_windows(
         highpass_hz=highpass_hz,
         notch_freqs=notch_freqs,
         notch_q=notch_q,
+    )
+    waveform = apply_domain_adaptation(
+        waveform=waveform,
+        profile=adaptation_profile,
+        target_rms=adapt_target_rms,
+        max_gain_db=adapt_max_gain_db,
     )
 
     if source_sr != target_sr:
@@ -407,6 +462,14 @@ def main() -> None:
                 args.notch_q,
             )
         )
+    if args.adaptation_profile != "none":
+        print(
+            "Domain adaptation enabled: profile={}, target_rms={}, max_gain_db={}".format(
+                args.adaptation_profile,
+                args.adapt_target_rms,
+                args.adapt_max_gain_db,
+            )
+        )
 
     file_rows = []
     window_rows = []
@@ -420,6 +483,9 @@ def main() -> None:
             highpass_hz=highpass_hz,
             notch_freqs=notch_frequencies,
             notch_q=args.notch_q,
+            adaptation_profile=args.adaptation_profile,
+            adapt_target_rms=args.adapt_target_rms,
+            adapt_max_gain_db=args.adapt_max_gain_db,
         )
         probabilities = infer_windows(
             model=model,

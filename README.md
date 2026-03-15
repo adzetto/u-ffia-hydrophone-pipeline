@@ -30,6 +30,7 @@ In the original project, the full framework supports audio, video, and audio-vis
   - Folder-level inference for local `.wav` files
   - Auto-detection for the released audio checkpoints
   - Optional hydrophone-oriented preprocessing during inference
+  - Optional unsupervised hydrophone domain-adaptation profile during inference
 - `tools/preprocess_hydrophone_audio.py`
   - Offline conversion of raw hydrophone recordings into `64 kHz`, mono, `2 s` chunks
   - Optional high-pass and notch filtering
@@ -37,6 +38,10 @@ In the original project, the full framework supports audio, video, and audio-vis
   - Simple Raspberry Pi / UMC22 capture utility for raw hydrophone clips and FFT snapshots
 - `tools/plot_inference_results.py`
   - Matplotlib summary plots for file-level and window-level inference outputs
+- `tools/analyze_hydrophone_raw.py`
+  - Raw-data metrics, PSD analysis, markdown summary, and matplotlib figures
+- `tools/compare_inference_runs.py`
+  - Run-to-run comparison plots and markdown summaries
 - Expanded documentation for setup, known caveats, and the end-to-end workflow
 
 ## Current Caveats
@@ -212,8 +217,43 @@ The current hydrophone experiment outputs are stored under `results/hidrofon/`.
   - File-level and window-level summary for the released PANNs CNN10 checkpoint
 - `hydrophone_model_comparison.png`
   - Direct comparison of class counts, per-file labels, and confidence behavior
+- `raw_analysis/hydrophone_raw_analysis.png`
+  - Raw hydrophone amplitude, low-frequency energy, and PSD summary
+- `raw_analysis/hydrophone_raw_metrics.csv`
+  - Per-file raw-signal metrics joined with model predictions
 
 In short, the MobileNetV2 checkpoint produces some variation but still leans heavily toward `weak`, while the PANNs CNN10 checkpoint collapses to `strong` for every tested hydrophone file.
+
+Booktabs-style comparison between the raw-signal pattern and the model outputs:
+
+```latex
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lllll}
+\toprule
+File & Raw profile & RMS & MobileNetV2 & PANNs CNN10 \\
+\midrule
+050403 & sub-10Hz / low-energy & 0.000039 & weak & strong \\
+050510 & sub-10Hz / low-energy & 0.000054 & weak & strong \\
+050611 & sub-10Hz / low-energy & 0.000783 & weak & strong \\
+050656 & sub-10Hz / low-energy & 0.000029 & weak & strong \\
+050907 & sub-10Hz / low-energy & 0.000032 & weak & strong \\
+051106 & sub-10Hz / low-energy & 0.000032 & weak & strong \\
+051932 & sub-10Hz / low-energy & 0.000029 & weak & strong \\
+052030 & sub-10Hz / low-energy & 0.000367 & weak & strong \\
+052218 & sub-10Hz / low-energy & 0.000301 & weak & strong \\
+052245 & sub-10Hz / low-energy & 0.000142 & weak & strong \\
+052420 & 50Hz hum-heavy & 0.008980 & weak & strong \\
+052517 & 50Hz hum-heavy & 0.075139 & strong & strong \\
+052609 & 50Hz hum-heavy & 0.003788 & none & strong \\
+052719 & 50Hz hum-heavy & 0.034587 & medium & strong \\
+052822 & 50Hz hum-heavy & 0.092256 & strong & strong \\
+\bottomrule
+\end{tabular}
+\caption{Raw hydrophone signal pattern versus model predictions. The raw profile is derived from the dominant low-frequency component and the measured 45--55 Hz band energy ratio.}
+\end{table}
+```
 
 ## Notes On Validation
 
