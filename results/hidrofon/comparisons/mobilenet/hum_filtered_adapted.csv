@@ -1,0 +1,16 @@
+file,duration_seconds,num_windows,predicted_index,predicted_label,score_none,score_strong,score_medium,score_weak
+C:\Users\lenovo\Desktop\omar\PROJE1\hidrofon\kayit_20260313_050403.wav,10.0,5,3,weak,0.006949,7.9e-05,0.000565,0.992407
+C:\Users\lenovo\Desktop\omar\PROJE1\hidrofon\kayit_20260313_050510.wav,10.0,5,3,weak,0.006449,5.1e-05,0.000509,0.992991
+C:\Users\lenovo\Desktop\omar\PROJE1\hidrofon\kayit_20260313_050611.wav,10.0,5,3,weak,0.012133,1e-06,0.0,0.987866
+C:\Users\lenovo\Desktop\omar\PROJE1\hidrofon\kayit_20260313_050656.wav,10.0,5,3,weak,0.018256,6.3e-05,0.000936,0.980746
+C:\Users\lenovo\Desktop\omar\PROJE1\hidrofon\kayit_20260313_050907.wav,10.0,5,3,weak,0.092636,0.00077,0.004908,0.901686
+C:\Users\lenovo\Desktop\omar\PROJE1\hidrofon\kayit_20260313_051106.wav,10.0,5,3,weak,0.050934,0.00063,0.031778,0.916658
+C:\Users\lenovo\Desktop\omar\PROJE1\hidrofon\kayit_20260313_051932.wav,10.0,5,3,weak,0.009352,7.7e-05,0.001665,0.988906
+C:\Users\lenovo\Desktop\omar\PROJE1\hidrofon\kayit_20260313_052030.wav,10.0,5,3,weak,0.176035,1.1e-05,2e-06,0.823951
+C:\Users\lenovo\Desktop\omar\PROJE1\hidrofon\kayit_20260313_052218.wav,10.0,5,0,none,0.912721,0.000178,0.000127,0.086974
+C:\Users\lenovo\Desktop\omar\PROJE1\hidrofon\kayit_20260313_052245.wav,10.0,5,3,weak,0.015771,0.00039,0.000609,0.98323
+C:\Users\lenovo\Desktop\omar\PROJE1\hidrofon\kayit_20260313_052420.wav,10.0,5,1,strong,0.000845,0.951362,0.047587,0.000206
+C:\Users\lenovo\Desktop\omar\PROJE1\hidrofon\kayit_20260313_052517.wav,10.0,5,1,strong,0.000151,0.984419,0.015341,8.9e-05
+C:\Users\lenovo\Desktop\omar\PROJE1\hidrofon\kayit_20260313_052609.wav,10.0,5,1,strong,9e-05,0.834964,0.163956,0.000991
+C:\Users\lenovo\Desktop\omar\PROJE1\hidrofon\kayit_20260313_052719.wav,10.0,5,1,strong,0.000397,0.961422,0.038049,0.000132
+C:\Users\lenovo\Desktop\omar\PROJE1\hidrofon\kayit_20260313_052822.wav,10.0,5,1,strong,0.00025,0.975035,0.024577,0.000138
