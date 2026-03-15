@@ -1,6 +1,6 @@
 # Detailed Pipeline
 
-This document expands the short repository README and records the execution structure used in the hydrophone experiments.
+This document expands the short repository README and records the execution structure used in the hydrophone experiments, including the local binary stabilization gate.
 
 ## Figure 1. End-to-End Hydrophone Execution Flow
 
@@ -62,6 +62,7 @@ flowchart TD
     subgraph Inference["Model Inference Layer"]
         D0[infer_audio_folder.py]
         D1[Load config/audio/pre_exp.yaml]
+        D1b[Clamp invalid frontend band limits<br/>so fmax does not exceed Nyquist]
         D2[Load checkpoint]
         D3[Audio_Frontend mel pipeline]
         D4[Backbone branch]
@@ -70,8 +71,8 @@ flowchart TD
         D7[Window-level logits]
         D8[Softmax probabilities]
         D9[File-level probability average]
-        D10[Predicted label:<br/>none / strong / medium / weak]
-        D0 --> D1 --> D2 --> D3 --> D4
+        D10[Base predicted label:<br/>none / strong / medium / weak]
+        D0 --> D1 --> D1b --> D2 --> D3 --> D4
         D4 --> D5 --> D7
         D4 --> D6 --> D7
         D7 --> D8 --> D9 --> D10
@@ -79,11 +80,28 @@ flowchart TD
 
     D10 --> E0
 
+    subgraph BinaryGate["Local Binary Stabilization Layer"]
+        G0[tools/train_hydrophone_binary_adapter.py]
+        G1[Weak supervision:<br/>voice_yem vs voice]
+        G2[MFCC + spectral feature logistic adapter]
+        G3[Cross-validation report]
+        G4[Binary feeding-like probability]
+        G5[Gate:<br/>none = 1 - p(feed)]
+        G6[Redistribute p(feed) across strong/medium/weak]
+        G1 --> G0 --> G2 --> G3
+        G2 --> G4 --> G5 --> G6
+    end
+
+    D10 --> G4
+    C10 --> G4
+
     subgraph Comparison["Comparison And Reporting Layer"]
         E0[Run profile matrix]
         E1[raw]
         E2[hum_filtered]
         E3[hum_filtered + adaptation]
+        E3b[hum_filtered + binary_gate]
+        E3c[hum_filtered + adaptation + binary_gate]
         E4[tools/plot_inference_results.py]
         E5[tools/compare_inference_runs.py]
         E6[Per-run summaries]
@@ -92,12 +110,18 @@ flowchart TD
         E0 --> E1
         E0 --> E2
         E0 --> E3
+        E0 --> E3b
+        E0 --> E3c
         E1 --> E4 --> E6
         E2 --> E4
         E3 --> E4
+        E3b --> E4
+        E3c --> E4
         E1 --> E5 --> E7
         E2 --> E5
         E3 --> E5
+        E3b --> E5
+        E3c --> E5
         E5 --> E8
     end
 
@@ -146,7 +170,9 @@ flowchart LR
 | Acquisition | `tools/record_hydrophone.py` | Live hydrophone stream | Record PCM16 wav, save FFT snapshot | raw `.wav`, spectrum `.png` |
 | Raw analysis | `tools/analyze_hydrophone_raw.py` | Raw wav folder | Metadata, amplitude, Welch PSD, hum-band ratios, joined predictions | metrics `.csv`, analysis `.png`, summary `.md` |
 | Preprocess only | `tools/preprocess_hydrophone_audio.py` | Raw wav folder | high-pass, notch, resample, chunking | processed `.wav` chunks |
-| Inference | `infer_audio_folder.py` | Raw or processed wav folder | frontend, backbone, softmax, file aggregation | prediction `.csv` |
+| Inference | `infer_audio_folder.py` | Raw or processed wav folder | frontend, Nyquist-safe mel band sanitization, backbone, softmax, file aggregation | prediction `.csv` |
+| Binary gate training | `tools/train_hydrophone_binary_adapter.py` | weakly labeled local folders | MFCC and spectral features, logistic regression, CV evaluation | adapter `.joblib`, report `.md`, report `.png` |
+| Stabilized inference | `infer_audio_folder.py --binary-adapter-model ... --stabilization-profile binary_gate` | wav folder + adapter | base model plus binary feeding gate | stabilized prediction `.csv` |
 | Single-run plotting | `tools/plot_inference_results.py` | prediction `.csv` | probability heatmap, count plots | summary `.png` |
 | Multi-run comparison | `tools/compare_inference_runs.py` | multiple prediction `.csv` files | cross-run count, class, confidence comparison | comparison `.png`, comparison `.md` |
 
@@ -157,12 +183,15 @@ flowchart LR
 | `raw` | `none` | `none` | Baseline run on untreated hydrophone recordings |
 | `hum_filtered` | `hydrophone` | `none` | Test whether electrical hum suppression changes model outputs |
 | `hum_filtered_adapted` | `hydrophone` | `hydrophone_v1` | Test whether simple unsupervised RMS adaptation reduces domain mismatch |
+| `hum_filtered_gated` | `hydrophone` | `none` | Use local binary gate to suppress unstable nonfeeding false positives |
+| `hum_filtered_adapted_gated` | `hydrophone` | `hydrophone_v1` | Stabilized path combining local gate with amplitude adaptation |
 
 ## Output Artifact Table
 
 | Artifact group | Location |
 | --- | --- |
 | Raw analysis figures and tables | `results/hidrofon/raw_analysis/` |
+| Binary adapter artifacts | `results/adapter/` |
 | MobileNet comparison runs | `results/hidrofon/comparisons/mobilenet/` |
 | PANNs comparison runs | `results/hidrofon/comparisons/panns/` |
 | Short results overview | `docs/RESULTS.md` |

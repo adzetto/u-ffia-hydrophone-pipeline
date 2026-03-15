@@ -3,6 +3,7 @@ import csv
 from pathlib import Path
 from typing import Dict, Iterable, List, Sequence, Tuple
 
+import joblib
 import librosa
 import numpy as np
 import torch
@@ -136,6 +137,24 @@ def parse_args() -> argparse.Namespace:
         default=30.0,
         help="Maximum absolute gain applied by RMS adaptation, in dB.",
     )
+    parser.add_argument(
+        "--binary-adapter-model",
+        type=Path,
+        default=None,
+        help="Optional joblib model trained on local hydrophone-domain labels.",
+    )
+    parser.add_argument(
+        "--stabilization-profile",
+        choices=("none", "binary_gate"),
+        default="none",
+        help="Optional post-model stabilization profile.",
+    )
+    parser.add_argument(
+        "--binary-feed-threshold",
+        type=float,
+        default=0.5,
+        help="Threshold used by the binary gate to decide whether the clip is feeding-like.",
+    )
     return parser.parse_args()
 
 
@@ -228,8 +247,35 @@ def build_backbone(backbone_name: str, classes_num: int) -> nn.Module:
     raise RuntimeError("Unsupported backbone: {}".format(backbone_name))
 
 
+def sanitize_audio_features(audio_features: Dict) -> Dict:
+    sanitized = dict(audio_features)
+    sample_rate = int(sanitized["sample_rate"])
+    nyquist = sample_rate / 2.0
+    fmax = float(sanitized["fmax"])
+    fmin = float(sanitized["fmin"])
+
+    # Several released configs set fmax above Nyquist, which produces empty
+    # mel filters during inference. Clamp it defensively to a valid range.
+    safe_fmax = min(fmax, max(fmin + 1.0, nyquist - 1.0))
+    safe_fmin = min(fmin, safe_fmax - 1.0)
+    if safe_fmax != fmax or safe_fmin != fmin:
+        print(
+            "Adjusted audio frontend band limits from fmin={}Hz, fmax={}Hz to "
+            "fmin={}Hz, fmax={}Hz for sample_rate={}Hz.".format(
+                fmin,
+                fmax,
+                safe_fmin,
+                safe_fmax,
+                sample_rate,
+            )
+        )
+    sanitized["fmin"] = safe_fmin
+    sanitized["fmax"] = safe_fmax
+    return sanitized
+
+
 def build_model(config: Dict, checkpoint_path: Path, device: torch.device) -> Tuple[nn.Module, int, str]:
-    audio_features = config["Audio_features"]
+    audio_features = sanitize_audio_features(config["Audio_features"])
     classes_num = int(config["Training"]["classes_num"])
     state_dict = load_checkpoint_state(checkpoint_path)
     backbone_name = infer_backbone_name(state_dict)
@@ -346,18 +392,16 @@ def apply_domain_adaptation(
     return adapted.astype(np.float32)
 
 
-def split_windows(
+def load_processed_waveform(
     audio_path: Path,
     target_sr: int,
-    window_seconds: float,
-    hop_seconds: float,
     highpass_hz: float,
     notch_freqs: Sequence[float],
     notch_q: float,
     adaptation_profile: str,
     adapt_target_rms: float,
     adapt_max_gain_db: float,
-) -> Tuple[List[np.ndarray], float]:
+) -> Tuple[np.ndarray, float]:
     waveform, source_sr = librosa.load(str(audio_path), sr=None, mono=True)
     if waveform.size == 0:
         raise RuntimeError("Failed to read audio samples from {}".format(audio_path))
@@ -380,13 +424,23 @@ def split_windows(
     if source_sr != target_sr:
         waveform = librosa.resample(waveform, orig_sr=source_sr, target_sr=target_sr)
 
+    return waveform.astype(np.float32), duration_seconds
+
+
+def split_windows_from_waveform(
+    waveform: np.ndarray,
+    target_sr: int,
+    window_seconds: float,
+    hop_seconds: float,
+) -> List[np.ndarray]:
+
     target_samples = int(round(window_seconds * target_sr))
     hop_samples = int(round(hop_seconds * target_sr))
     if target_samples <= 0 or hop_samples <= 0:
         raise ValueError("Window and hop sizes must be positive.")
 
     if len(waveform) <= target_samples:
-        return [pad_or_trim(waveform, target_samples)], duration_seconds
+        return [pad_or_trim(waveform, target_samples)]
 
     windows = []
     start = 0
@@ -401,7 +455,49 @@ def split_windows(
             break
         start += hop_samples
 
-    return windows, duration_seconds
+    return windows
+
+
+def extract_binary_adapter_features(waveform: np.ndarray, sample_rate: int) -> np.ndarray:
+    mfcc = librosa.feature.mfcc(y=waveform, sr=sample_rate, n_mfcc=20)
+    features = []
+    features.extend(np.mean(mfcc, axis=1))
+    features.extend(np.std(mfcc, axis=1))
+    features.extend(np.mean(librosa.feature.spectral_centroid(y=waveform, sr=sample_rate), axis=1))
+    features.extend(np.mean(librosa.feature.spectral_bandwidth(y=waveform, sr=sample_rate), axis=1))
+    features.extend(np.mean(librosa.feature.spectral_rolloff(y=waveform, sr=sample_rate), axis=1))
+    features.extend(np.mean(librosa.feature.zero_crossing_rate(y=waveform), axis=1))
+    features.extend(np.mean(librosa.feature.rms(y=waveform), axis=1))
+    return np.asarray(features, dtype=np.float32)
+
+
+def load_binary_adapter_bundle(model_path: Path | None) -> Tuple[object | None, Dict[str, object]]:
+    if model_path is None:
+        return None, {}
+    resolved = model_path.expanduser().resolve()
+    if not resolved.exists():
+        raise FileNotFoundError("Binary adapter model not found: {}".format(resolved))
+    payload = joblib.load(resolved)
+    metadata = payload.get("metadata", {}) if isinstance(payload, dict) else {}
+    model = payload["model"] if isinstance(payload, dict) and "model" in payload else payload
+    if not hasattr(model, "predict_proba"):
+        raise RuntimeError("Binary adapter model does not expose predict_proba().")
+    return model, metadata
+
+
+def stabilize_probabilities_with_binary_gate(
+    mean_probabilities: np.ndarray,
+    binary_feed_probability: float,
+) -> np.ndarray:
+    stabilized = np.zeros_like(mean_probabilities, dtype=np.float32)
+    stabilized[0] = float(np.clip(1.0 - binary_feed_probability, 0.0, 1.0))
+    non_none = np.clip(mean_probabilities[1:], 0.0, None)
+    total = float(np.sum(non_none))
+    if total <= 0:
+        non_none = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+        total = 1.0
+    stabilized[1:] = float(binary_feed_probability) * (non_none / total)
+    return stabilized.astype(np.float32)
 
 
 def batched(items: Sequence[np.ndarray], batch_size: int) -> Iterable[np.ndarray]:
@@ -446,6 +542,7 @@ def main() -> None:
     device = resolve_device(args.device)
     checkpoint_path = resolve_checkpoint_path(args.checkpoint)
     model, target_sr, backbone_name = build_model(config, checkpoint_path, device)
+    binary_adapter_model, binary_adapter_metadata = load_binary_adapter_bundle(args.binary_adapter_model)
     audio_files = find_audio_files(args.input_path)
     highpass_hz, notch_frequencies = resolve_preprocess_settings(
         profile=args.preprocess_profile,
@@ -470,22 +567,36 @@ def main() -> None:
                 args.adapt_max_gain_db,
             )
         )
+    if args.stabilization_profile != "none":
+        if binary_adapter_model is None:
+            raise ValueError("stabilization-profile={} requires --binary-adapter-model.".format(args.stabilization_profile))
+        print(
+            "Stabilization enabled: profile={}, threshold={}, adapter={}".format(
+                args.stabilization_profile,
+                args.binary_feed_threshold,
+                args.binary_adapter_model,
+            )
+        )
 
     file_rows = []
     window_rows = []
 
     for audio_path in audio_files:
-        windows, duration_seconds = split_windows(
+        processed_waveform, duration_seconds = load_processed_waveform(
             audio_path=audio_path,
             target_sr=target_sr,
-            window_seconds=args.window_seconds,
-            hop_seconds=args.hop_seconds,
             highpass_hz=highpass_hz,
             notch_freqs=notch_frequencies,
             notch_q=args.notch_q,
             adaptation_profile=args.adaptation_profile,
             adapt_target_rms=args.adapt_target_rms,
             adapt_max_gain_db=args.adapt_max_gain_db,
+        )
+        windows = split_windows_from_waveform(
+            waveform=processed_waveform,
+            target_sr=target_sr,
+            window_seconds=args.window_seconds,
+            hop_seconds=args.hop_seconds,
         )
         probabilities = infer_windows(
             model=model,
@@ -494,6 +605,22 @@ def main() -> None:
             device=device,
         )
         mean_probabilities = aggregate_probabilities(probabilities)
+        base_probabilities = mean_probabilities.copy()
+        binary_feed_probability = None
+        adapter_gate_label = ""
+        if binary_adapter_model is not None:
+            adapter_sample_rate = int(binary_adapter_metadata.get("sample_rate", target_sr))
+            adapter_waveform = processed_waveform
+            if adapter_sample_rate != target_sr:
+                adapter_waveform = librosa.resample(processed_waveform, orig_sr=target_sr, target_sr=adapter_sample_rate)
+            adapter_features = extract_binary_adapter_features(adapter_waveform, sample_rate=adapter_sample_rate)
+            binary_feed_probability = float(binary_adapter_model.predict_proba(adapter_features.reshape(1, -1))[0, 1])
+            adapter_gate_label = "feeding_like" if binary_feed_probability >= args.binary_feed_threshold else "nonfeeding_like"
+            if args.stabilization_profile == "binary_gate":
+                mean_probabilities = stabilize_probabilities_with_binary_gate(
+                    mean_probabilities=mean_probabilities,
+                    binary_feed_probability=binary_feed_probability,
+                )
         predicted_index = int(np.argmax(mean_probabilities))
         predicted_label = CLASS_NAMES[predicted_index]
 
@@ -506,6 +633,9 @@ def main() -> None:
         }
         for class_index, class_name in enumerate(CLASS_NAMES):
             row["score_{}".format(class_name)] = round(float(mean_probabilities[class_index]), 6)
+            row["base_score_{}".format(class_name)] = round(float(base_probabilities[class_index]), 6)
+        row["binary_feed_probability"] = "" if binary_feed_probability is None else round(binary_feed_probability, 6)
+        row["binary_gate_label"] = adapter_gate_label
         file_rows.append(row)
 
         for window_index, prob_vector in enumerate(probabilities):
@@ -539,6 +669,12 @@ def main() -> None:
         "score_strong",
         "score_medium",
         "score_weak",
+        "base_score_none",
+        "base_score_strong",
+        "base_score_medium",
+        "base_score_weak",
+        "binary_feed_probability",
+        "binary_gate_label",
     ]
     write_csv(args.output_csv, file_rows, file_fieldnames)
 
