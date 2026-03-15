@@ -1,0 +1,103 @@
+{
+  "checkpoint": "C:\\Users\\lenovo\\Desktop\\omar\\u-ffia-hydrophone-pipeline-pub\\results\\finetune_binary_none_yem\\hydrophone_source_e8_thr\\audio_binary_best.pt",
+  "initial_checkpoint": "C:\\Users\\lenovo\\Desktop\\omar\\pretrained_models\\audio-visual_pretrainedmodel\\audio_best.pt",
+  "class_names": [
+    "none",
+    "yem"
+  ],
+  "dataset_sizes": {
+    "train": 1165,
+    "val": 250,
+    "test": 250
+  },
+  "best_epoch": 6,
+  "decision_threshold": 0.5199999999999999,
+  "train": {
+    "accuracy": 0.5545064377682404,
+    "macro_f1": 0.5114096139906861,
+    "positive_f1": 0.3663003663003663,
+    "confusion": [
+      [
+        496,
+        203
+      ],
+      [
+        316,
+        150
+      ]
+    ]
+  },
+  "val": {
+    "accuracy": 0.72,
+    "macro_f1": 0.6715712033631109,
+    "positive_f1": 0.5454545454545454,
+    "confusion": [
+      [
+        138,
+        12
+      ],
+      [
+        58,
+        42
+      ]
+    ]
+  },
+  "test": {
+    "accuracy": 0.724,
+    "macro_f1": 0.6774193548387097,
+    "positive_f1": 0.5548387096774193,
+    "confusion": [
+      [
+        138,
+        12
+      ],
+      [
+        57,
+        43
+      ]
+    ],
+    "classification_report": {
+      "none": {
+        "precision": 0.7076923076923077,
+        "recall": 0.92,
+        "f1-score": 0.8,
+        "support": 150.0
+      },
+      "yem": {
+        "precision": 0.7818181818181819,
+        "recall": 0.43,
+        "f1-score": 0.5548387096774193,
+        "support": 100.0
+      },
+      "accuracy": 0.724,
+      "macro avg": {
+        "precision": 0.7447552447552448,
+        "recall": 0.675,
+        "f1-score": 0.6774193548387097,
+        "support": 250.0
+      },
+      "weighted avg": {
+        "precision": 0.7373426573426574,
+        "recall": 0.724,
+        "f1-score": 0.7019354838709678,
+        "support": 250.0
+      }
+    }
+  },
+  "preprocess": {
+    "profile": "hydrophone",
+    "adaptation_profile": "hydrophone_v1",
+    "adapt_target_rms": 0.05,
+    "adapt_max_gain_db": 30.0,
+    "highpass_hz": 120.0,
+    "notch_freqs": [
+      50.0,
+      100.0,
+      150.0,
+      200.0
+    ],
+    "notch_q": 30.0
+  },
+  "loaded_key_count": 322,
+  "skipped_key_count": 2
+}

@@ -16,7 +16,8 @@ from models.model_zoo.MobileNetV2 import MobileNetV2
 from models.model_zoo.panns import PANNS_Cnn10
 
 
-CLASS_NAMES = ["none", "strong", "medium", "weak"]
+DEFAULT_CLASS_NAMES_4 = ["none", "strong", "medium", "weak"]
+DEFAULT_CLASS_NAMES_2 = ["none", "yem"]
 DEFAULT_HYDROPHONE_NOTCHES = (50.0, 100.0, 150.0, 200.0)
 REPO_ROOT = Path(__file__).resolve().parent
 
@@ -155,6 +156,12 @@ def parse_args() -> argparse.Namespace:
         default=0.5,
         help="Threshold used by the binary gate to decide whether the clip is feeding-like.",
     )
+    parser.add_argument(
+        "--binary-positive-threshold",
+        type=float,
+        default=None,
+        help="Optional decision threshold for the positive class when using a 2-class checkpoint.",
+    )
     return parser.parse_args()
 
 
@@ -231,6 +238,20 @@ def load_checkpoint_state(checkpoint_path: Path) -> Dict[str, torch.Tensor]:
     }
 
 
+def load_checkpoint_metadata(checkpoint_path: Path) -> Dict[str, object]:
+    checkpoint = torch.load(str(checkpoint_path), map_location="cpu", weights_only=False)
+    if not isinstance(checkpoint, dict):
+        return {}
+    metadata = {}
+    if "class_names" in checkpoint:
+        metadata["class_names"] = checkpoint["class_names"]
+    if "config" in checkpoint:
+        metadata["config"] = checkpoint["config"]
+    if "metrics" in checkpoint:
+        metadata["metrics"] = checkpoint["metrics"]
+    return metadata
+
+
 def infer_backbone_name(state_dict: Dict[str, torch.Tensor]) -> str:
     if any(key.startswith("backbone.features.") for key in state_dict):
         return "mobilenetv2"
@@ -274,11 +295,39 @@ def sanitize_audio_features(audio_features: Dict) -> Dict:
     return sanitized
 
 
-def build_model(config: Dict, checkpoint_path: Path, device: torch.device) -> Tuple[nn.Module, int, str]:
+def resolve_class_names(
+    config: Dict,
+    checkpoint_metadata: Dict[str, object],
+    classes_num: int,
+) -> List[str]:
+    config_names = config.get("Class_names")
+    if isinstance(config_names, list) and len(config_names) == classes_num:
+        return [str(name) for name in config_names]
+
+    checkpoint_names = checkpoint_metadata.get("class_names")
+    if isinstance(checkpoint_names, list) and len(checkpoint_names) == classes_num:
+        return [str(name) for name in checkpoint_names]
+
+    checkpoint_config = checkpoint_metadata.get("config", {})
+    if isinstance(checkpoint_config, dict):
+        nested_names = checkpoint_config.get("Class_names")
+        if isinstance(nested_names, list) and len(nested_names) == classes_num:
+            return [str(name) for name in nested_names]
+
+    if classes_num == 4:
+        return list(DEFAULT_CLASS_NAMES_4)
+    if classes_num == 2:
+        return list(DEFAULT_CLASS_NAMES_2)
+    return ["class_{}".format(index) for index in range(classes_num)]
+
+
+def build_model(config: Dict, checkpoint_path: Path, device: torch.device) -> Tuple[nn.Module, int, str, List[str]]:
     audio_features = sanitize_audio_features(config["Audio_features"])
     classes_num = int(config["Training"]["classes_num"])
     state_dict = load_checkpoint_state(checkpoint_path)
+    checkpoint_metadata = load_checkpoint_metadata(checkpoint_path)
     backbone_name = infer_backbone_name(state_dict)
+    class_names = resolve_class_names(config, checkpoint_metadata, classes_num)
 
     frontend = Audio_Frontend(**audio_features)
     backbone = build_backbone(backbone_name, classes_num=classes_num)
@@ -294,7 +343,7 @@ def build_model(config: Dict, checkpoint_path: Path, device: torch.device) -> Tu
 
     model.to(device)
     model.eval()
-    return model, int(audio_features["sample_rate"]), backbone_name
+    return model, int(audio_features["sample_rate"]), backbone_name, class_names
 
 
 def pad_or_trim(waveform: np.ndarray, target_samples: int) -> np.ndarray:
@@ -489,6 +538,8 @@ def stabilize_probabilities_with_binary_gate(
     mean_probabilities: np.ndarray,
     binary_feed_probability: float,
 ) -> np.ndarray:
+    if len(mean_probabilities) != 4:
+        raise ValueError("binary_gate stabilization currently supports only 4-class checkpoints.")
     stabilized = np.zeros_like(mean_probabilities, dtype=np.float32)
     stabilized[0] = float(np.clip(1.0 - binary_feed_probability, 0.0, 1.0))
     non_none = np.clip(mean_probabilities[1:], 0.0, None)
@@ -541,9 +592,18 @@ def main() -> None:
     config = load_config(args.config)
     device = resolve_device(args.device)
     checkpoint_path = resolve_checkpoint_path(args.checkpoint)
-    model, target_sr, backbone_name = build_model(config, checkpoint_path, device)
+    checkpoint_metadata = load_checkpoint_metadata(checkpoint_path)
+    model, target_sr, backbone_name, class_names = build_model(config, checkpoint_path, device)
     binary_adapter_model, binary_adapter_metadata = load_binary_adapter_bundle(args.binary_adapter_model)
     audio_files = find_audio_files(args.input_path)
+    binary_positive_threshold = args.binary_positive_threshold
+    checkpoint_metrics = checkpoint_metadata.get("metrics", {})
+    if binary_positive_threshold is None and isinstance(checkpoint_metrics, dict):
+        stored_threshold = checkpoint_metrics.get("decision_threshold")
+        if stored_threshold is not None:
+            binary_positive_threshold = float(stored_threshold)
+    if binary_positive_threshold is None:
+        binary_positive_threshold = 0.5
     highpass_hz, notch_frequencies = resolve_preprocess_settings(
         profile=args.preprocess_profile,
         highpass_hz=args.highpass_hz,
@@ -577,6 +637,8 @@ def main() -> None:
                 args.binary_adapter_model,
             )
         )
+    if len(class_names) == 2:
+        print("Binary checkpoint decision threshold={}".format(binary_positive_threshold))
 
     file_rows = []
     window_rows = []
@@ -621,8 +683,11 @@ def main() -> None:
                     mean_probabilities=mean_probabilities,
                     binary_feed_probability=binary_feed_probability,
                 )
-        predicted_index = int(np.argmax(mean_probabilities))
-        predicted_label = CLASS_NAMES[predicted_index]
+        if len(class_names) == 2:
+            predicted_index = 1 if float(mean_probabilities[1]) >= float(binary_positive_threshold) else 0
+        else:
+            predicted_index = int(np.argmax(mean_probabilities))
+        predicted_label = class_names[predicted_index]
 
         row = {
             "file": str(audio_path),
@@ -631,7 +696,7 @@ def main() -> None:
             "predicted_index": predicted_index,
             "predicted_label": predicted_label,
         }
-        for class_index, class_name in enumerate(CLASS_NAMES):
+        for class_index, class_name in enumerate(class_names):
             row["score_{}".format(class_name)] = round(float(mean_probabilities[class_index]), 6)
             row["base_score_{}".format(class_name)] = round(float(base_probabilities[class_index]), 6)
         row["binary_feed_probability"] = "" if binary_feed_probability is None else round(binary_feed_probability, 6)
@@ -639,14 +704,17 @@ def main() -> None:
         file_rows.append(row)
 
         for window_index, prob_vector in enumerate(probabilities):
-            window_prediction = int(np.argmax(prob_vector))
+            if len(class_names) == 2:
+                window_prediction = 1 if float(prob_vector[1]) >= float(binary_positive_threshold) else 0
+            else:
+                window_prediction = int(np.argmax(prob_vector))
             window_row = {
                 "file": str(audio_path),
                 "window_index": window_index,
                 "predicted_index": window_prediction,
-                "predicted_label": CLASS_NAMES[window_prediction],
+                "predicted_label": class_names[window_prediction],
             }
-            for class_index, class_name in enumerate(CLASS_NAMES):
+            for class_index, class_name in enumerate(class_names):
                 window_row["score_{}".format(class_name)] = round(float(prob_vector[class_index]), 6)
             window_rows.append(window_row)
 
@@ -665,17 +733,12 @@ def main() -> None:
         "num_windows",
         "predicted_index",
         "predicted_label",
-        "score_none",
-        "score_strong",
-        "score_medium",
-        "score_weak",
-        "base_score_none",
-        "base_score_strong",
-        "base_score_medium",
-        "base_score_weak",
         "binary_feed_probability",
         "binary_gate_label",
     ]
+    score_fieldnames = ["score_{}".format(class_name) for class_name in class_names]
+    base_score_fieldnames = ["base_score_{}".format(class_name) for class_name in class_names]
+    file_fieldnames = file_fieldnames[:5] + score_fieldnames + base_score_fieldnames + file_fieldnames[5:]
     write_csv(args.output_csv, file_rows, file_fieldnames)
 
     if args.window_csv is not None:
@@ -684,11 +747,8 @@ def main() -> None:
             "window_index",
             "predicted_index",
             "predicted_label",
-            "score_none",
-            "score_strong",
-            "score_medium",
-            "score_weak",
         ]
+        window_fieldnames.extend(score_fieldnames)
         write_csv(args.window_csv, window_rows, window_fieldnames)
 
     print("Saved aggregated results to {}".format(args.output_csv))

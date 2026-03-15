@@ -1,6 +1,6 @@
 # U-FFIA Hydrophone Pipeline
 
-Hydrophone-oriented evaluation pipeline built on top of U-FFIA. The current recommended path is `MobileNetV2 + hydrophone preprocess + local binary gate`.
+Hydrophone-oriented evaluation pipeline built on top of U-FFIA. The current recommended path is `MobileNetV2 binary none/yem fine-tune + hydrophone preprocess + hydrophone_v1 adaptation`.
 
 ## Links
 
@@ -14,9 +14,11 @@ Hydrophone-oriented evaluation pipeline built on top of U-FFIA. The current reco
 
 ![Raw Hydrophone Analysis](results/hidrofon/raw_analysis/hydrophone_raw_analysis.png)
 
-![MobileNetV2 Stabilization Comparison](results/hidrofon/comparisons/mobilenet/comparison_stabilized.png)
+![Binary Fine-Tune Hydrophone Raw Result](results/finetune_binary_none_yem/hydrophone_source_e8_thr/hidrofon_binary_raw.png)
 
-![MobileNetV2 Stabilized Result](results/hidrofon/comparisons/mobilenet/hum_filtered_adapted_gated_v2_summary.png)
+![Binary Fine-Tune Hydrophone Result](results/finetune_binary_none_yem/hydrophone_source_e8_thr/hidrofon_binary_hydrophone.png)
+
+![MobileNetV2 Stabilization Comparison](results/hidrofon/comparisons/mobilenet/comparison_stabilized.png)
 
 ## Short Findings
 
@@ -24,8 +26,12 @@ Hydrophone-oriented evaluation pipeline built on top of U-FFIA. The current reco
 | --- | --- |
 | Raw-data structure | `15` files, all `48 kHz`, mono, `10 s`, no clipping |
 | Raw-data issue | `10/15` files are very low energy, `5/15` are strongly `50 Hz` hum-heavy |
-| Recommended profile | `MobileNetV2 + hydrophone preprocess + hydrophone_v1 adaptation + binary gate` |
-| Stabilized output | `10` files `weak`, `5` files `none` |
+| Updated local labels | `none = yemleme yok`, `yem = yemleme var` |
+| Binary fine-tune data | `voice_none1/2` and `voice_yem1/2`, total `1665` clips |
+| Best binary checkpoint | `results/finetune_binary_none_yem/hydrophone_source_e8_thr/audio_binary_best.pt` |
+| Binary test result | Accuracy `0.724`, macro-F1 `0.677`, `yem` F1 `0.555` |
+| Recommended profile | `binary MobileNetV2 + hydrophone preprocess + hydrophone_v1 adaptation` |
+| Hydrophone binary output | Raw run: `12 yem / 3 none`; preprocessed run: `12 none / 3 yem` |
 | Local validation | 4-way local projection maps the first `10` hydrophone files to `voice2`-like and the last `5` to `voice`-like |
 | PANNs CNN10 | Still collapsed and not recommended on this dataset |
 
@@ -37,6 +43,6 @@ Hydrophone-oriented evaluation pipeline built on top of U-FFIA. The current reco
 ## Quick Start
 
 ```bash
-python tools/train_hydrophone_binary_adapter.py --positive-dir PROJE1/voice_yem --negative-dir PROJE1/voice --output-model results/adapter/local_binary_gate.joblib --preprocess-profile hydrophone
-python infer_audio_folder.py path/to/audio_folder --preprocess-profile hydrophone --adaptation-profile hydrophone_v1 --binary-adapter-model results/adapter/local_binary_gate.joblib --stabilization-profile binary_gate --output-csv stabilized.csv
+python tools/finetune_binary_audio.py --negative-dir PROJE1/voice_none1 --negative-dir PROJE1/voice_none2 --positive-dir PROJE1/voice_yem1 --positive-dir PROJE1/voice_yem2 --output-dir results/finetune_binary_none_yem/hydrophone_source_e8_thr --epochs 8 --batch-size 32 --preprocess-profile hydrophone --adaptation-profile hydrophone_v1
+python infer_audio_folder.py PROJE1/hidrofon --config config/audio/exp_binary_none_yem.yaml --checkpoint results/finetune_binary_none_yem/hydrophone_source_e8_thr/audio_binary_best.pt --preprocess-profile hydrophone --adaptation-profile hydrophone_v1 --output-csv results/finetune_binary_none_yem/hydrophone_source_e8_thr/hidrofon_binary_hydrophone.csv
 ```

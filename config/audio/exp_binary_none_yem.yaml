@@ -1,0 +1,26 @@
+Exp_name: binary-none-yem-mobilenetv2
+
+Modality: "audio"
+
+Training:
+    Batch_size: 32
+    Max_epoch: 12
+    learning_rate: 3e-4
+    seed: 42
+    classes_num: 2
+
+Audio_features:
+    sample_rate: 64000
+    window_size: 2048
+    hop_size: 1024
+    mel_bins: 64
+    fmin: 1
+    fmax: 128000
+
+Model: MobileNetV2
+
+Class_names:
+    - none
+    - yem
+
+Workspace: "results/finetune_binary_none_yem"

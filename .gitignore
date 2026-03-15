@@ -29,3 +29,9 @@ data/
 *.mp4
 *_results.csv
 *_windows.csv
+results/finetune_binary_none_yem/hydrophone_ft_v1_smoke/
+results/finetune_binary_none_yem/hydrophone_ft_v1_smoke2/
+results/finetune_binary_none_yem/hydrophone_ft_v1_smoke3/
+results/finetune_binary_none_yem/raw_source_smoke/
+results/finetune_binary_none_yem/raw_source_e8/
+results/finetune_binary_none_yem/raw_source_e8_thr/
