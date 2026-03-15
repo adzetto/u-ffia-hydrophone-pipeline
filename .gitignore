@@ -35,3 +35,7 @@ results/finetune_binary_none_yem/hydrophone_ft_v1_smoke3/
 results/finetune_binary_none_yem/raw_source_smoke/
 results/finetune_binary_none_yem/raw_source_e8/
 results/finetune_binary_none_yem/raw_source_e8_thr/
+results/finetune_binary_none_yem/local_audio_plain_e10/
+results/finetune_binary_av/
+results/video_eval/
+results/video_smoke.csv

@@ -1,0 +1,146 @@
+{
+  "feature_names": [
+    "audio_none",
+    "audio_yem",
+    "audio_margin",
+    "audio_entropy",
+    "video_none",
+    "video_strong",
+    "video_medium",
+    "video_weak",
+    "video_feedlike",
+    "video_active",
+    "video_strong_minus_none",
+    "cross_audio_video",
+    "agree_feed"
+  ],
+  "source_weight_rules": {
+    "voice_yem2": "0.8"
+  },
+  "leaderboard": [
+    {
+      "model": "random_forest",
+      "threshold": 0.51,
+      "val_macro_f1": 0.7964980342576076,
+      "val_accuracy": 0.812,
+      "test_accuracy": 0.768,
+      "test_macro_f1": 0.7612618545837724,
+      "test_positive_f1": 0.7211538461538461,
+      "test_confusion": [
+        [
+          117,
+          33
+        ],
+        [
+          25,
+          75
+        ]
+      ]
+    },
+    {
+      "model": "gradient_boosting",
+      "threshold": 0.36,
+      "val_macro_f1": 0.7795304414382935,
+      "val_accuracy": 0.788,
+      "test_accuracy": 0.76,
+      "test_macro_f1": 0.7573757763975155,
+      "test_positive_f1": 0.7321428571428571,
+      "test_confusion": [
+        [
+          108,
+          42
+        ],
+        [
+          18,
+          82
+        ]
+      ]
+    },
+    {
+      "model": "logreg",
+      "threshold": 0.54,
+      "val_macro_f1": 0.6489450576796602,
+      "val_accuracy": 0.684,
+      "test_accuracy": 0.668,
+      "test_macro_f1": 0.6388729354844324,
+      "test_positive_f1": 0.5363128491620112,
+      "test_confusion": [
+        [
+          119,
+          31
+        ],
+        [
+          52,
+          48
+        ]
+      ]
+    }
+  ],
+  "best_model": "random_forest",
+  "best_summary": {
+    "model": "random_forest",
+    "threshold": 0.51,
+    "val_macro_f1": 0.7964980342576076,
+    "val_accuracy": 0.812,
+    "test_accuracy": 0.768,
+    "test_macro_f1": 0.7612618545837724,
+    "test_positive_f1": 0.7211538461538461,
+    "test_confusion": [
+      [
+        117,
+        33
+      ],
+      [
+        25,
+        75
+      ]
+    ]
+  },
+  "test_baselines": {
+    "audio": {
+      "accuracy": 0.724,
+      "macro_f1": 0.6774193548387097,
+      "positive_f1": 0.5548387096774193,
+      "confusion": [
+        [
+          138,
+          12
+        ],
+        [
+          57,
+          43
+        ]
+      ]
+    },
+    "video_feedlike": {
+      "accuracy": 0.58,
+      "macro_f1": 0.5671959242221892,
+      "positive_f1": 0.4927536231884058,
+      "confusion": [
+        [
+          94,
+          56
+        ],
+        [
+          49,
+          51
+        ]
+      ]
+    },
+    "fusion": {
+      "accuracy": 0.768,
+      "macro_f1": 0.7612618545837724,
+      "positive_f1": 0.7211538461538461,
+      "confusion": [
+        [
+          117,
+          33
+        ],
+        [
+          25,
+          75
+        ]
+      ]
+    }
+  }
+}
