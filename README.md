@@ -11,6 +11,7 @@ This repository is a publishable working copy of the original U-FFIA codebase, a
 - Demo page: https://fishmaster93.github.io/UFFIA_demopage/
 - Pretrained weights (Google Drive): https://drive.google.com/drive/folders/1fh-Lo3S7-aTgfPni5-IeG5_-P7MBKBfL?usp=drive_link
 - AV-FFIA dataset (Zenodo): https://zenodo.org/records/11059975
+- Our hydrophone data (Google Drive): https://drive.google.com/drive/folders/1qVZvUsLJxGaPP1cPbR4LjEqP2VsjgzeT?usp=drive_link
 
 ## What The Model Does
 
@@ -34,6 +35,8 @@ In the original project, the full framework supports audio, video, and audio-vis
   - Optional high-pass and notch filtering
 - `tools/record_hydrophone.py`
   - Simple Raspberry Pi / UMC22 capture utility for raw hydrophone clips and FFT snapshots
+- `tools/plot_inference_results.py`
+  - Matplotlib summary plots for file-level and window-level inference outputs
 - Expanded documentation for setup, known caveats, and the end-to-end workflow
 
 ## Current Caveats
@@ -42,6 +45,14 @@ In the original project, the full framework supports audio, video, and audio-vis
 - Our hydrophone recordings were captured at `48 kHz`, and many raw clips have very low energy.
 - We observed clear `~50 Hz` / `~150 Hz` electrical hum in part of the hydrophone data.
 - On our current hydrophone recordings, the released checkpoints are overconfident and tend to collapse into a single class. This means the pipeline runs, but the outputs should be treated as exploratory rather than validated.
+
+## Our Data
+
+Our working hydrophone dataset is stored separately from the codebase and can be downloaded here:
+
+- https://drive.google.com/drive/folders/1qVZvUsLJxGaPP1cPbR4LjEqP2VsjgzeT?usp=drive_link
+
+This repo assumes those recordings are local during preprocessing and inference, but the raw data itself is not committed into Git.
 
 ## Pipeline
 
@@ -170,6 +181,12 @@ Record a fresh hydrophone clip on the acquisition machine:
 python tools/record_hydrophone.py --duration 10 --output-dir raw_capture
 ```
 
+Generate a matplotlib summary from an inference CSV:
+
+```bash
+python tools/plot_inference_results.py results.csv --window-csv window_results.csv --output summary.png
+```
+
 ## Repository Layout
 
 - `config/`, `dataset/`, `models/`, `tasks/`
@@ -180,6 +197,23 @@ python tools/record_hydrophone.py --duration 10 --output-dir raw_capture
   - Offline hydrophone cleanup and chunk export
 - `tools/record_hydrophone.py`
   - Basic raw hydrophone capture helper
+- `tools/plot_inference_results.py`
+  - Converts inference CSV outputs into reviewable matplotlib summaries
+- `results/`
+  - Local experiment outputs, plots, and result notes
+
+## Current Results
+
+The current hydrophone experiment outputs are stored under `results/hidrofon/`.
+
+- `mobilenet_hydrophone_summary.png`
+  - File-level and window-level summary for the released MobileNetV2-based checkpoint
+- `panns_hydrophone_summary.png`
+  - File-level and window-level summary for the released PANNs CNN10 checkpoint
+- `hydrophone_model_comparison.png`
+  - Direct comparison of class counts, per-file labels, and confidence behavior
+
+In short, the MobileNetV2 checkpoint produces some variation but still leans heavily toward `weak`, while the PANNs CNN10 checkpoint collapses to `strong` for every tested hydrophone file.
 
 ## Notes On Validation
 
